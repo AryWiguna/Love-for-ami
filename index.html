@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Love untuk amii</title>
+    <style>
+        /* Reset margin dan padding */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* Memastikan background fullscreen hitam dan tidak bisa di-scroll */
+        body,
+        html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: black;
+            font-family: sans-serif;
+        }
+
+        /* Memastikan canvas menempati seluruh area tanpa jarak putih */
+        #heartCanvas {
+            display: block;
+        }
+
+        /* ===== Photo Card (kartu gosok) ===== */
+        #photoCard {
+            position: absolute;
+            border-radius: 18px;
+            overflow: hidden;
+            border: 3px solid rgba(255, 255, 255, 0.9);
+            box-shadow: 0 0 25px rgba(255, 0, 60, 0.55), 0 0 60px rgba(255, 0, 60, 0.25);
+            background: #1a0008;
+            opacity: 0;
+            transform: translateY(-25px) scale(0.9);
+            transition: opacity 0.9s ease, transform 0.9s cubic-bezier(.2, .9, .3, 1.2);
+            pointer-events: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #photoCard.show {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            pointer-events: auto;
+        }
+
+        /* Glow berdenyut setelah foto terbuka */
+        #photoCard.revealed {
+            animation: cardGlow 2.2s ease-in-out infinite;
+        }
+
+        @keyframes cardGlow {
+
+            0%,
+            100% {
+                box-shadow: 0 0 25px rgba(255, 0, 60, 0.55), 0 0 60px rgba(255, 0, 60, 0.25);
+            }
+
+            50% {
+                box-shadow: 0 0 40px rgba(255, 30, 80, 0.85), 0 0 90px rgba(255, 0, 60, 0.45);
+            }
+        }
+
+        #photoImg {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+            -webkit-user-drag: none;
+        }
+
+        /* Lapisan yang harus diusap */
+        #scratchCanvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+            cursor: grab;
+            transition: opacity 0.8s ease;
+        }
+
+        #scratchCanvas.cleared {
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="heartCanvas"></canvas>
+
+    <!-- Kartu foto: simpan foto dengan nama "foto.jpg" di folder yang sama dengan file ini -->
+    <div id="photoCard">
+        <img id="photoImg" src="foto.jpg" alt="Foto spesial" draggable="false">
+        <canvas id="scratchCanvas"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('heartCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const card = document.getElementById('photoCard');
+        const scratchCanvas = document.getElementById('scratchCanvas');
+        const sctx = scratchCanvas.getContext('2d');
+
+        let width, height, cx, cy, scale;
+
+        // Minimal 15 variasi terjemahan frasa "I love you"
+        const phrases = [
+            "I love you",       // English
+            "Te amo",           // Spanish
+            "Aku cinta kamu",   // Indonesian
+            "Seni seviyorum",   // Turkish
+            "Saranghae",        // Korean
+            "Je t'aime",        // French
+            "Ich liebe dich",   // German
+            "Ti amo",           // Italian
+            "Ya tebya lyublyu", // Russian
+            "Aishiteru",        // Japanese
+            "Wǒ ài nǐ",         // Chinese
+            "Mahal kita",       // Tagalog
+            "Eu te amo",        // Portuguese
+            "S'agapo",          // Greek
+            "Szeretlek"         // Hungarian
+        ];
+
+        let pathPoints = [];
+        let drawIndex = 0;
+
+        // Status animasi: 'drawing' -> 'pause' -> 'moving' -> 'done'
+        let phase = 'drawing';
+        let pauseFrames = 0;
+        let moveProgress = 0;
+
+        // Ukuran & posisi layout
+        let fullLayout, finalLayout;
+        let cardW = 0, cardH = 0, cardShown = false;
+
+        // Inisialisasi canvas dan menggambar
+        function init() {
+            resize();
+            window.addEventListener('resize', resize);
+
+            // Inisialisasi array untuk menyimpan urutan posisi pembentuk hati
+            pathPoints = [];
+
+            // Buat titik secara berlapis dari bagian terluar (1.0) hingga ke bagian tengah (0.1)
+            const layerRadii = [1.0, 0.85, 0.7, 0.55, 0.4, 0.25, 0.1];
+            const pointsPerLayer = [90, 75, 60, 45, 30, 15, 5];
+
+            for (let l = 0; l < layerRadii.length; l++) {
+                let r = layerRadii[l];
+                let pCount = pointsPerLayer[l];
+
+                for (let i = 0; i <= pCount; i++) {
+                    // t bergerak dari 0 sampai 2*PI untuk merangkai satu lapis bentuk hati
+                    let t = (i / pCount) * Math.PI * 2;
+
+                    let xRaw = 16 * Math.pow(Math.sin(t), 3);
+                    let yRaw = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)); // Dinegasikan
+
+                    pathPoints.push({
+                        xRaw: xRaw * r, // Sesuaikan skala dengan radius layer
+                        yRaw: yRaw * r,
+                        phrase: phrases[Math.floor(Math.random() * phrases.length)],
+                        fontSize: Math.random() * 4 + 11 // Ukuran font
+                    });
+                }
+            }
+
+            // Mulai animasi menggambar
+            drawIndex = 0;
+            animate();
+        }
+
+        // Hitung layout awal (hati di tengah) & layout akhir (kartu di atas, hati di bawah)
+        function computeLayouts() {
+            // Layout awal: hati besar di tengah layar
+            fullLayout = { cx: width / 2, cy: height / 2, scale: Math.min(width, height) / 45 };
+
+            // Ukuran kartu (rasio ~1.45 sesuai proporsi foto asli). Dikunci setelah kartu tampil agar hasil usapan tidak hilang.
+            if (!cardShown) {
+                const maxCardW = Math.min(width * 0.88, 380);
+                const maxCardH = Math.min(height * 0.35, 245);
+                const targetRatio = 1.45;
+                if (maxCardW / targetRatio <= maxCardH) {
+                    cardW = maxCardW;
+                    cardH = cardW / targetRatio;
+                } else {
+                    cardH = maxCardH;
+                    cardW = cardH * targetRatio;
+                }
+            }
+
+            const cardTop = 20;
+            const gap = 28; // jarak aman antara kartu & hati
+            const heartTop = cardTop + cardH + gap;
+            const regionH = Math.max(80, height - heartTop - 16);
+
+            // Bentuk hati kira-kira setinggi 29 unit (y: -12 s/d 17) & selebar 32 unit (+ ruang teks)
+            const s = Math.min(regionH / 30, (width - 140) / 32, fullLayout.scale);
+            finalLayout = {
+                cx: width / 2,
+                cy: heartTop + 12 * s + Math.max(0, (regionH - 29 * s) / 2),
+                scale: s
+            };
+
+            // Posisikan kartu di tengah atas
+            card.style.width = cardW + 'px';
+            card.style.height = cardH + 'px';
+            card.style.left = (width - cardW) / 2 + 'px';
+            card.style.top = cardTop + 'px';
+        }
+
+        // Responsif terhadap perubahan ukuran layar
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+
+            computeLayouts();
+
+            // Jika animasi sudah selesai, gambar ulang sekali di posisi akhir
+            if (phase === 'done') render();
+        }
+
+        // Easing halus untuk transisi pergeseran hati
+        function easeInOut(t) {
+            return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        }
+
+        // Gambar seluruh kalimat hati pada posisi saat ini
+        function render() {
+            const e = easeInOut(moveProgress);
+            cx = fullLayout.cx + (finalLayout.cx - fullLayout.cx) * e;
+            cy = fullLayout.cy + (finalLayout.cy - fullLayout.cy) * e;
+            scale = fullLayout.scale + (finalLayout.scale - fullLayout.scale) * e;
+
+            ctx.clearRect(0, 0, width, height);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            // Efek warna dan bersinar (glow)
+            ctx.fillStyle = '#ff0000';
+            ctx.shadowColor = '#ff0000';
+            ctx.shadowBlur = 8;
+
+            // Font ikut mengecil sedikit saat hati mengecil
+            const fontFactor = Math.max(0.75, scale / fullLayout.scale);
+            let currentLimit = Math.min(Math.floor(drawIndex), pathPoints.length);
+
+            // Gambar semua kalimat yang sudah seharusnya muncul
+            for (let i = 0; i < currentLimit; i++) {
+                let p = pathPoints[i];
+
+                let x = cx + (p.xRaw * scale);
+                let y = cy + (p.yRaw * scale);
+
+                // Efek fade-in untuk kalimat yang baru saja ditambahkan
+                let age = drawIndex - i;
+                let alpha = Math.min(1, age / 3);
+
+                ctx.globalAlpha = alpha;
+                ctx.font = `bold ${p.fontSize * fontFactor}px Arial`;
+                ctx.fillText(p.phrase, x, y);
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        // Loop animasi utama
+        function animate() {
+            render();
+
+            if (phase === 'drawing') {
+                // Lanjutkan animasi perlahan kalimat demi kalimat (0.25 teks per frame)
+                drawIndex += 0.25;
+                if (drawIndex >= pathPoints.length + 3) phase = 'pause';
+            } else if (phase === 'pause') {
+                // Jeda sejenak agar hati penuh bisa dinikmati
+                if (++pauseFrames > 60) phase = 'moving';
+            } else if (phase === 'moving') {
+                // Hati bergeser ke bawah & mengecil untuk memberi ruang kartu foto
+                moveProgress = Math.min(1, moveProgress + 0.012);
+                if (moveProgress >= 1) {
+                    phase = 'done';
+                    render();
+                    showCard();
+                    return;
+                }
+            }
+            requestAnimationFrame(animate);
+        }
+
+        /* ================= KARTU GOSOK ================= */
+        let isScratching = false;
+        let lastPt = null;
+        let revealed = false;
+        let moveCount = 0;
+
+        function showCard() {
+            cardShown = true;
+            setupScratch();
+            card.classList.add('show');
+        }
+
+        // Gambar lapisan penutup yang harus diusap
+        function setupScratch() {
+            const dpr = window.devicePixelRatio || 1;
+            scratchCanvas.width = cardW * dpr;
+            scratchCanvas.height = cardH * dpr;
+            sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+            // Latar gradasi merah muda
+            const g = sctx.createLinearGradient(0, 0, cardW, cardH);
+            g.addColorStop(0, '#ff4d6d');
+            g.addColorStop(0.5, '#e01e5a');
+            g.addColorStop(1, '#8a0a2e');
+            sctx.fillStyle = g;
+            sctx.fillRect(0, 0, cardW, cardH);
+
+            // Pola hati kecil
+            sctx.fillStyle = 'rgba(255,255,255,0.13)';
+            sctx.textAlign = 'center';
+            sctx.textBaseline = 'middle';
+            sctx.font = '16px Arial';
+            for (let y = 14; y < cardH; y += 30) {
+                for (let x = ((y / 30) % 2 ? 10 : 25); x < cardW; x += 30) {
+                    sctx.fillText('♥', x, y);
+                }
+            }
+
+            // Teks petunjuk
+            sctx.fillStyle = '#fff';
+            sctx.shadowColor = 'rgba(0,0,0,0.45)';
+            sctx.shadowBlur = 8;
+            sctx.font = `bold ${Math.round(cardH / 7.5)}px Arial`;
+            sctx.fillText('Usap aku ✨', cardW / 2, cardH / 2 - cardH / 10);
+            sctx.font = `${Math.round(cardH / 5.2)}px Arial`;
+            sctx.fillText('💕', cardW / 2, cardH / 2 + cardH / 6);
+            sctx.shadowBlur = 0;
+        }
+
+        function getPoint(e) {
+            const rect = scratchCanvas.getBoundingClientRect();
+            return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        }
+
+        function scratchTo(pt) {
+            sctx.globalCompositeOperation = 'destination-out';
+            sctx.lineWidth = Math.max(34, cardH / 4.8);
+            sctx.lineCap = 'round';
+            sctx.lineJoin = 'round';
+            sctx.beginPath();
+            sctx.moveTo((lastPt || pt).x, (lastPt || pt).y);
+            sctx.lineTo(pt.x, pt.y);
+            sctx.stroke();
+            sctx.globalCompositeOperation = 'source-over';
+            lastPt = pt;
+
+            // Cek persentase area yang sudah terusap (tidak setiap gerakan agar ringan)
+            if (++moveCount % 8 === 0) checkReveal();
+        }
+
+        function checkReveal() {
+            if (revealed) return;
+            const data = sctx.getImageData(0, 0, scratchCanvas.width, scratchCanvas.height).data;
+            let cleared = 0, total = 0;
+            for (let i = 3; i < data.length; i += 4 * 24) {
+                total++;
+                if (data[i] === 0) cleared++;
+            }
+            // Jika sudah lebih dari 55% terusap, buka foto sepenuhnya
+            if (cleared / total > 0.55) {
+                revealed = true;
+                scratchCanvas.classList.add('cleared');
+                card.classList.add('revealed');
+            }
+        }
+
+        scratchCanvas.addEventListener('pointerdown', (e) => {
+            isScratching = true;
+            lastPt = null;
+            scratchCanvas.setPointerCapture(e.pointerId);
+            scratchTo(getPoint(e));
+        });
+        scratchCanvas.addEventListener('pointermove', (e) => {
+            if (isScratching) scratchTo(getPoint(e));
+        });
+        const stopScratch = () => { isScratching = false; lastPt = null; checkReveal(); };
+        scratchCanvas.addEventListener('pointerup', stopScratch);
+        scratchCanvas.addEventListener('pointercancel', stopScratch);
+
+        // Jalankan script
+        init();
+
+    </script>
+</body>
+
+</html>
